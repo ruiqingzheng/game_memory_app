@@ -8,3 +8,10 @@ export enum CardStatus {
   faceup = 'faceup',
   facedown = 'facedown',
 }
+
+export interface ICardState {
+  id: number | string
+  symbol: string
+  status: CardStatus
+  matched: boolean
+}
