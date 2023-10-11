@@ -1,21 +1,24 @@
-import { useEffect, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useReducer, useRef } from 'react'
 import { Card } from './Card'
 import { CardStatus, ICardState } from '../types.d'
 import styled from 'styled-components'
 
 interface IProps {
   symbols: string[]
+  memoryTime: number
 }
 
 enum ActionType {
   setStatus = 'setStatus',
   setMatched = 'setMatched',
   restart = 'restart',
+  resetGame = 'resetGame',
   shuffle = 'shuffle',
   setAllFacedown = 'setAllFacedown',
   setAllFaceUp = 'setAllFaceUp',
   setGameStarted = 'setGameStarted',
   setCurrentPairingCard = 'setCurrentPairingCard',
+  setGameFinished = 'setGameFinished',
 }
 
 type CardStatePayload = Omit<ICardState, symbol>
@@ -30,7 +33,11 @@ interface Action {
 interface GameState {
   cardsState: ICardState[]
   started: boolean
+  startedTime: number | null
+  finishedTime: number | null
+  totalTime: number | 0
   currentPairingCard: ICardState | null
+  score: number
 }
 
 const initCards = (symbols: string[]): ICardState[] => {
@@ -57,6 +64,16 @@ const initCards = (symbols: string[]): ICardState[] => {
   return result
 }
 
+const initState: GameState = {
+  cardsState: [],
+  currentPairingCard: null,
+  started: false,
+  startedTime: null,
+  finishedTime: null,
+  totalTime: 0,
+  score: 0,
+}
+
 function gameReducer(state: GameState, action: Action) {
   switch (action.type) {
     case ActionType.setStatus: {
@@ -65,16 +82,18 @@ function gameReducer(state: GameState, action: Action) {
       state.cardsState[index].status = (action.payload as CardStatePayload).status
       return { ...state }
     }
+
+    // setMatched and check game finished
     case ActionType.setMatched: {
       if (!action.payload) return state
       const index = state.cardsState.findIndex((item) => item.id === (action.payload as CardStatePayload).id)
       state.cardsState[index].matched = (action.payload as CardStatePayload).matched
+      isGameFinished()
       return { ...state }
     }
 
     case ActionType.shuffle: {
       const cardsState = initCards(state.cardsState.map((card) => card.symbol))
-      // cardsState.forEach((c) => (c.status = CardStatus.faceup))
       const _state = { ...state, cardsState }
       return _state
     }
@@ -91,18 +110,15 @@ function gameReducer(state: GameState, action: Action) {
 
     case ActionType.setGameStarted: {
       state.started = action.payload as IsGameStartedPayload
+      if (state.started) {
+        state.startedTime = new Date().getTime()
+        state.finishedTime = null
+      }
       return { ...state }
     }
 
-    case ActionType.restart: {
-      const cardsState = initCards(state.cardsState.map((card) => card.symbol))
-      // 显示 3 秒
-      cardsState.forEach((c) => (c.status = CardStatus.faceup))
-      const _state = { ...state, cardsState }
-      setTimeout(() => {
-        _state.cardsState.forEach((c) => (c.status = CardStatus.facedown))
-      }, 3000)
-      return _state
+    case ActionType.resetGame: {
+      return { ...initState, cardsState: state.cardsState }
     }
 
     case ActionType.setCurrentPairingCard: {
@@ -112,60 +128,67 @@ function gameReducer(state: GameState, action: Action) {
     default:
       return state
   }
+
+  function isGameFinished() {
+    const isFinish = state.cardsState.reduce((result, item) => result && item.matched, true)
+    isFinish && gameFinishedEffect()
+    return isFinish
+  }
+
+  function gameFinishedEffect() {
+    state.finishedTime = new Date().getTime()
+    state.currentPairingCard = null
+    state.totalTime = state.startedTime ? state.finishedTime - state.startedTime : 0
+    state.started = false
+  }
 }
 
-const initState: GameState = {
-  cardsState: [],
-  currentPairingCard: null,
-  started: false,
-}
-
-const Game = ({ symbols }: IProps) => {
+const Game = ({ symbols, memoryTime }: IProps) => {
   const [gameState, dispatch] = useReducer(gameReducer, initState, () => {
     return { ...initState, cardsState: initCards(symbols) }
   })
 
-  // current pairing card
-  // const [currentPairingCard, setCurrentPairingCard] = useState<ICardState | null>(null)
+  const timeCount = useRef(0)
+  const gameFinished = useRef(false)
+  const escapedTime = useRef<HTMLSpanElement>(null)
 
   const startTimer = useRef<number | null>(null)
 
-  const flipCard = (card: ICardState) => {
-    // if (card.matched) return
-    // const _card: ICardState = { ...card, status: card.status === CardStatus.facedown ? CardStatus.faceup : CardStatus.facedown }
+  const flipCardUp = (card: ICardState) => {
     dispatch({ type: ActionType.setStatus, payload: { ...card, status: CardStatus.faceup } })
   }
 
-  // const toggleMatched = (card: ICardState) => {
-  //   const _card: ICardState = { ...card, matched: !card.matched }
-  //   dispatch({ type: ActionType.setMatched, payload: _card })
-  // }
-
   const onClickCard = (card: ICardState) => {
     if (!gameState.started) return
-    flipCard(card)
+    flipCardUp(card)
     checkMatched(card)
-    // toggleMatched(card)
   }
 
   const checkMatched = (card: ICardState) => {
     if (card.matched) return
 
-    if (gameState.currentPairingCard && card.id === gameState.currentPairingCard.id) return
+    // 1. cancel current pairing card if click pairingCard self
+    if (gameState.currentPairingCard && card.id === gameState.currentPairingCard.id) {
+      dispatch({ type: ActionType.setCurrentPairingCard, payload: null })
+      dispatch({ type: ActionType.setStatus, payload: { ...card, status: CardStatus.facedown } })
+      return
+    }
 
-    // set current pairing card
+    // 2. set current pairing card if have no currentPairing card yet
     if (gameState.currentPairingCard === null && !card.matched) {
       dispatch({ type: ActionType.setCurrentPairingCard, payload: card })
       dispatch({ type: ActionType.setStatus, payload: { ...card, status: CardStatus.faceup } })
     }
 
-    // check card if match current pairing card
+    // 3. check the card if match current pairing card when currentPairing card existed
     if (gameState.currentPairingCard && !card.matched) {
+      // matched -> setMatched , and reset current pairing card null
       if (gameState.currentPairingCard.symbol === card.symbol) {
         dispatch({ type: ActionType.setMatched, payload: { ...card, matched: true } })
         dispatch({ type: ActionType.setMatched, payload: { ...gameState.currentPairingCard, matched: true } })
         dispatch({ type: ActionType.setCurrentPairingCard, payload: null })
       } else {
+        // flip facedown when is not matched
         setTimeout(() => {
           dispatch({ type: ActionType.setStatus, payload: { ...card, status: CardStatus.facedown } })
         }, 500)
@@ -174,29 +197,58 @@ const Game = ({ symbols }: IProps) => {
   }
 
   const restartGame = () => {
-    dispatch({ type: ActionType.setGameStarted, payload: false })
-    dispatch({ type: ActionType.setCurrentPairingCard, payload: null })
+    dispatch({ type: ActionType.resetGame })
     dispatch({ type: ActionType.shuffle })
-
     startGame()
   }
 
-  const startGame = () => {
+  useEffect(() => {
+    gameFinished.current = gameState.finishedTime !== null
+  }, [gameState.finishedTime])
+
+  const updateTimeCount = useCallback(() => {
+    if (gameFinished.current) return
+    const timeCounting = gameState.startedTime !== null && gameState.startedTime > 0
+    if (gameState.started && timeCounting && gameState.startedTime) {
+      timeCount.current = Date.now() - gameState.startedTime
+      // update dom
+      if (escapedTime.current) {
+        escapedTime.current.innerText = timeCount.current.toString()
+      }
+    }
+
+    // console.log(timeCount.current, 'timestamp:', timestamp)
+    // console.log(timeCount.current)
+    requestAnimationFrame(updateTimeCount)
+  }, [gameState.started, gameState.startedTime])
+
+  // count escape time since game started
+  useEffect(() => {
+    const timeCounting = !!timeCount.current
+    if (gameState.started && !timeCounting) {
+      requestAnimationFrame(updateTimeCount)
+    }
+  }, [gameState.started, updateTimeCount])
+
+  const startGame = useCallback(() => {
     const _fn = () => {
       dispatch({ type: ActionType.setAllFaceUp })
+      // start game after user memory time
       startTimer.current = setTimeout(() => {
         dispatch({ type: ActionType.setAllFacedown })
         dispatch({ type: ActionType.setCurrentPairingCard, payload: null })
         dispatch({ type: ActionType.setGameStarted, payload: true })
+        timeCount.current = 0
+        // requestAnimationFrame(updateTimeCount)
         if (startTimer.current) clearTimeout(startTimer.current)
-      }, 3000)
+      }, memoryTime)
     }
     if (startTimer.current) {
       clearTimeout(startTimer.current)
     }
 
     _fn()
-  }
+  }, [memoryTime])
 
   const isCurrentPairing = (card: ICardState) => {
     return gameState.currentPairingCard !== null && card.id === gameState.currentPairingCard.id
@@ -204,7 +256,7 @@ const Game = ({ symbols }: IProps) => {
 
   useEffect(() => {
     startGame()
-  }, [])
+  }, [startGame])
 
   const cardsExist = gameState.cardsState.length > 0
   if (!cardsExist) return null
@@ -216,9 +268,22 @@ const Game = ({ symbols }: IProps) => {
           <Card key={cardData.id} isCurrentPairing={isCurrentPairing(cardData)} status={cardData.status} symbol={cardData.symbol} gameStarted={gameState.started} onClickCard={() => onClickCard(cardData)} matched={cardData.matched}></Card>
         ))}
       </div>
-      <S.StartButton onClick={restartGame} className="mt-5 rounded-lg px-5 py-1 tracking-widest bg-pink-500 hover:bg-pink-400 active:bg-pink-300 text-white font-bold text-[20px] font-serif italic">
-        restart
-      </S.StartButton>
+
+      <div className="flex gap-5">
+        <S.StartButton
+          onClick={restartGame}
+          disabled={!gameFinished.current && gameState.started}
+          className={`${!gameFinished.current && gameState.started ? 'bg-gray-500' : ''} mt-5 rounded-lg px-5 py-1 tracking-widest bg-pink-500 hover:bg-pink-400 active:bg-pink-300 text-white font-bold text-[20px] font-serif italic`}
+        >
+          restart
+        </S.StartButton>
+        <S.StartButton className={`${!gameState.started && !gameState.finishedTime ? 'hidden' : 'flex'} w-60 mt-5 rounded-lg px-5 py-1 tracking-widest bg-pink-500 hover:bg-pink-400 active:bg-pink-300 text-white font-bold text-[20px] font-serif italic`}>
+          <span className={`${gameState.finishedTime ? 'hidden' : 'block'}`}>
+            escaped: <span ref={escapedTime}></span>
+          </span>
+          <span className={`${gameState.finishedTime ? 'block' : 'hidden'}`}>total: {(timeCount.current / 1000).toFixed(2)} s</span>
+        </S.StartButton>
+      </div>
     </S.Container>
   )
 }
