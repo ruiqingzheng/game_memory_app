@@ -189,9 +189,11 @@ const Game = ({ symbols, memoryTime }: IProps) => {
         dispatch({ type: ActionType.setCurrentPairingCard, payload: null })
       } else {
         // flip facedown when is not matched
-        setTimeout(() => {
-          dispatch({ type: ActionType.setStatus, payload: { ...card, status: CardStatus.facedown } })
-        }, 500)
+        // 1. cancel last pairing card and set it facedown
+        // 2. set clicked card pairing
+        const _lastPairingCard = gameState.currentPairingCard
+        dispatch({ type: ActionType.setCurrentPairingCard, payload: card })
+        dispatch({ type: ActionType.setStatus, payload: { ..._lastPairingCard, status: CardStatus.facedown } as CardStatePayload })
       }
     }
   }
@@ -213,7 +215,7 @@ const Game = ({ symbols, memoryTime }: IProps) => {
       timeCount.current = Date.now() - gameState.startedTime
       // update dom
       if (escapedTime.current) {
-        escapedTime.current.innerText = timeCount.current.toString()
+        escapedTime.current.innerText = (timeCount.current / 1000).toFixed(2) + ' s'
       }
     }
 
@@ -270,14 +272,10 @@ const Game = ({ symbols, memoryTime }: IProps) => {
       </div>
 
       <div className="flex gap-5">
-        <S.StartButton
-          onClick={restartGame}
-          disabled={!gameFinished.current && gameState.started}
-          className={`${!gameFinished.current && gameState.started ? 'bg-gray-500' : ''} mt-5 rounded-lg px-5 py-1 tracking-widest bg-pink-500 hover:bg-pink-400 active:bg-pink-300 text-white font-bold text-[20px] font-serif italic`}
-        >
+        <S.StartButton onClick={restartGame} disabled={!gameFinished.current && gameState.started} className={`${gameState.started ? 'hidden ' : ''} mt-5 rounded-lg px-5 py-1 tracking-widest bg-pink-500 hover:bg-pink-400 active:bg-pink-300 text-white font-bold text-[20px] font-serif italic`}>
           restart
         </S.StartButton>
-        <S.StartButton className={`${!gameState.started && !gameState.finishedTime ? 'hidden' : 'flex'} w-60 mt-5 rounded-lg px-5 py-1 tracking-widest bg-pink-500 hover:bg-pink-400 active:bg-pink-300 text-white font-bold text-[20px] font-serif italic`}>
+        <S.StartButton className={`${!gameState.started && !gameState.finishedTime ? 'hidden' : 'flex'} w-full mt-5 rounded-lg px-5 py-1 tracking-widest bg-pink-500 hover:bg-pink-400 active:bg-pink-300 text-white font-bold text-[20px] font-serif italic`}>
           <span className={`${gameState.finishedTime ? 'hidden' : 'block'}`}>
             escaped: <span ref={escapedTime}></span>
           </span>
