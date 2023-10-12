@@ -147,10 +147,10 @@ const Game = ({ symbols, memoryTime }: IProps) => {
   const [gameState, dispatch] = useReducer(gameReducer, initState, () => {
     return { ...initState, cardsState: initCards(symbols) }
   })
-
   const timeCount = useRef(0)
   const gameFinished = useRef(false)
   const escapedTime = useRef<HTMLSpanElement>(null)
+  const timeLeftToStart = useRef<HTMLSpanElement>(null)
 
   const startTimer = useRef<number | null>(null)
 
@@ -235,6 +235,30 @@ const Game = ({ symbols, memoryTime }: IProps) => {
   const startGame = useCallback(() => {
     const _fn = () => {
       dispatch({ type: ActionType.setAllFaceUp })
+
+      const clickStartTime = Date.now() // for update time to start tips
+      const updateStartTips = () => {
+        const now = Date.now()
+        // tips seconds left to start
+        const escaped = now - clickStartTime
+        let left = memoryTime - escaped
+        // console.log('left to start:', left)
+        // quit update when startTimer canceled (clicked again)
+        if (!startTimer.current) return
+
+        // update
+        if (left > 5) {
+          if (left < 20) left = 0 // round
+          if (timeLeftToStart.current) {
+            timeLeftToStart.current.innerText = (left / 1000).toFixed(2)
+          }
+          requestAnimationFrame(updateStartTips)
+        } else {
+          return
+        }
+      }
+      requestAnimationFrame(updateStartTips)
+
       // start game after user memory time
       startTimer.current = setTimeout(() => {
         dispatch({ type: ActionType.setAllFacedown })
@@ -247,6 +271,7 @@ const Game = ({ symbols, memoryTime }: IProps) => {
     }
     if (startTimer.current) {
       clearTimeout(startTimer.current)
+      startTimer.current = null
     }
 
     _fn()
@@ -265,6 +290,12 @@ const Game = ({ symbols, memoryTime }: IProps) => {
 
   return (
     <S.Container>
+      <div className={`${gameState.started ? 'hidden' : ''} text-gray-400 tracking-widest text-[14px] font-serif italic w-full grid grid-cols-5`}>
+        <div className=" col-start-2  col-span-3 flex justify-center items-center ">
+          <span className="text-gray-300 " ref={timeLeftToStart}></span>
+          <span> seconds to start</span>
+        </div>
+      </div>
       <div className="grid grid-cols-5 ">
         {gameState.cardsState.map((cardData) => (
           <Card key={cardData.id} isCurrentPairing={isCurrentPairing(cardData)} status={cardData.status} symbol={cardData.symbol} gameStarted={gameState.started} onClickCard={() => onClickCard(cardData)} matched={cardData.matched}></Card>
@@ -272,12 +303,13 @@ const Game = ({ symbols, memoryTime }: IProps) => {
       </div>
 
       <div className="flex gap-5">
-        <S.StartButton onClick={restartGame} disabled={!gameFinished.current && gameState.started} className={`${gameState.started ? 'hidden ' : ''} mt-5 rounded-lg px-5 py-1 tracking-widest bg-pink-500 hover:bg-pink-400 active:bg-pink-300 text-white font-bold text-[20px] font-serif italic`}>
-          restart
+        <S.StartButton onClick={restartGame} disabled={gameState.started} className={`${gameState.started ? 'hidden ' : ''} mt-5 rounded-lg px-5 py-1 tracking-widest bg-pink-500 hover:bg-pink-400 active:bg-pink-300 text-white font-bold text-[20px] font-serif italic`}>
+          {gameState.finishedTime && gameState.finishedTime > 0 ? 'restart' : 'shuffle'}
         </S.StartButton>
-        <S.StartButton className={`${!gameState.started && !gameState.finishedTime ? 'hidden' : 'flex'} w-full mt-5 rounded-lg px-5 py-1 tracking-widest bg-pink-500 hover:bg-pink-400 active:bg-pink-300 text-white font-bold text-[20px] font-serif italic`}>
+        {/* escaped time and total finish time  */}
+        <S.StartButton className={`${!gameState.started && !gameState.finishedTime ? 'hidden' : 'flex'} w-80 text-center flex justify-center align-center mt-5 rounded-lg px-5 py-1 tracking-widest bg-pink-500 hover:bg-pink-400 active:bg-pink-300 text-white font-bold text-[20px] font-serif italic`}>
           <span className={`${gameState.finishedTime ? 'hidden' : 'block'}`}>
-            escaped: <span ref={escapedTime}></span>
+            <span className='w-28'>escaped:</span> <span ref={escapedTime}></span>
           </span>
           <span className={`${gameState.finishedTime ? 'block' : 'hidden'}`}>total: {(timeCount.current / 1000).toFixed(2)} s</span>
         </S.StartButton>
